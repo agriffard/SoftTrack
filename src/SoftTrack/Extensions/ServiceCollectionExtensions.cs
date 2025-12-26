@@ -30,17 +30,4 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
-
-    /// <summary>
-    /// Adds generic SoftTrack repository services.
-    /// </summary>
-    /// <typeparam name="TContext">The DbContext type.</typeparam>
-    /// <param name="services">The service collection.</param>
-    /// <returns>The service collection for chaining.</returns>
-    public static IServiceCollection AddSoftTrack<TContext>(this IServiceCollection services)
-        where TContext : DbContext
-    {
-        services.AddScoped(typeof(ISoftTrackRepository<>), typeof(SoftTrackRepository<>));
-        return services;
-    }
 }

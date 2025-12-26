@@ -43,9 +43,11 @@ public class SoftTrackRepository<T> : ISoftTrackRepository<T> where T : Versione
         entity.DeletedBy = null;
 
         _dbSet.Add(entity);
-        await _context.SaveChangesAsync(cancellationToken);
 
-        await SaveHistoryAsync(entity, OperationType.Create, userId, cancellationToken);
+        // Add history record in the same transaction
+        AddHistoryRecord(entity, OperationType.Create, userId);
+
+        await _context.SaveChangesAsync(cancellationToken);
 
         return entity;
     }
@@ -63,19 +65,29 @@ public class SoftTrackRepository<T> : ISoftTrackRepository<T> where T : Versione
             throw new InvalidOperationException("Cannot update a deleted entity.");
         }
 
-        // Copy new values but preserve system fields
+        // Preserve original creation values before copying
+        var originalCreatedAt = existingEntity.CreatedAt;
+        var originalCreatedBy = existingEntity.CreatedBy;
+
+        // Copy new values
         var entry = _context.Entry(existingEntity);
         entry.CurrentValues.SetValues(entity);
 
+        // Restore preserved values and set update tracking
         existingEntity.Version++;
         existingEntity.UpdatedAt = DateTime.UtcNow;
         existingEntity.UpdatedBy = userId;
-        existingEntity.CreatedAt = entry.OriginalValues.GetValue<DateTime>(nameof(VersionedEntity.CreatedAt));
-        existingEntity.CreatedBy = entry.OriginalValues.GetValue<string?>(nameof(VersionedEntity.CreatedBy));
+        existingEntity.CreatedAt = originalCreatedAt;
+        existingEntity.CreatedBy = originalCreatedBy;
+
+        // Mark creation fields as unmodified to prevent EF from changing them
+        entry.Property(nameof(VersionedEntity.CreatedAt)).IsModified = false;
+        entry.Property(nameof(VersionedEntity.CreatedBy)).IsModified = false;
+
+        // Add history record in the same transaction
+        AddHistoryRecord(existingEntity, OperationType.Update, userId);
 
         await _context.SaveChangesAsync(cancellationToken);
-
-        await SaveHistoryAsync(existingEntity, OperationType.Update, userId, cancellationToken);
 
         return existingEntity;
     }
@@ -96,9 +108,10 @@ public class SoftTrackRepository<T> : ISoftTrackRepository<T> where T : Versione
         entity.DeletedBy = userId;
         entity.Version++;
 
-        await _context.SaveChangesAsync(cancellationToken);
+        // Add history record in the same transaction
+        AddHistoryRecord(entity, OperationType.SoftDelete, userId);
 
-        await SaveHistoryAsync(entity, OperationType.SoftDelete, userId, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -121,9 +134,10 @@ public class SoftTrackRepository<T> : ISoftTrackRepository<T> where T : Versione
         entity.UpdatedBy = userId;
         entity.Version++;
 
-        await _context.SaveChangesAsync(cancellationToken);
+        // Add history record in the same transaction
+        AddHistoryRecord(entity, OperationType.Restore, userId);
 
-        await SaveHistoryAsync(entity, OperationType.Restore, userId, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -164,9 +178,10 @@ public class SoftTrackRepository<T> : ISoftTrackRepository<T> where T : Versione
         existingEntity.DeletedAt = null;
         existingEntity.DeletedBy = null;
 
-        await _context.SaveChangesAsync(cancellationToken);
+        // Add history record in the same transaction
+        AddHistoryRecord(existingEntity, OperationType.Restore, userId);
 
-        await SaveHistoryAsync(existingEntity, OperationType.Restore, userId, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
 
         return existingEntity;
     }
@@ -208,7 +223,7 @@ public class SoftTrackRepository<T> : ISoftTrackRepository<T> where T : Versione
             .ToListAsync(cancellationToken);
     }
 
-    private async Task SaveHistoryAsync(T entity, OperationType operationType, string? userId, CancellationToken cancellationToken)
+    private void AddHistoryRecord(T entity, OperationType operationType, string? userId)
     {
         try
         {
@@ -225,7 +240,6 @@ public class SoftTrackRepository<T> : ISoftTrackRepository<T> where T : Versione
             };
 
             historyDbSet.Add(history);
-            await _context.SaveChangesAsync(cancellationToken);
         }
         catch (InvalidOperationException)
         {

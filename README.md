@@ -73,9 +73,6 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 // Register repository for specific entity
 builder.Services.AddSoftTrackRepository<Product, AppDbContext>();
-
-// Or register generic repository support
-builder.Services.AddSoftTrack<AppDbContext>();
 ```
 
 ### 4. Use the repository
